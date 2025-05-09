@@ -20,23 +20,25 @@ class DetectInnerBox:
 
     # ---------------- 主逻辑 ---------------- #
     def run(self, mask, connectivity=4):
-        # ① tensor → numpy uint8 0/255
-        if isinstance(mask, list):  # ComfyUI 有时包装成 list
+        if isinstance(mask, list):
             mask = mask[0]
-        if mask.ndim == 3:  # [1,H,W] → [H,W]
+        if mask.ndim == 3:
             mask = mask[0]
-        m = (mask.cpu().numpy() > 0).astype("uint8") * 255  # bool → 0/255
 
-        # ② flood-fill 把边缘连通白色涂成黑
-        pad = cv2.copyMakeBorder(m, 1, 1, 1, 1, cv2.BORDER_CONSTANT, value=0)
-        flags = 4 if connectivity == 4 else 8
-        cv2.floodFill(pad, None, (0, 0), 0, flags=flags | (255 << 8))
-        inner = pad[1:-1, 1:-1]  # 去掉填充，得到中央白块
+        # ① 二值化并反相
+        inv = ((mask == 0).cpu().numpy().astype("uint8")) * 255  # 空白→255
 
-        # ③ 找中央白色像素坐标
-        coords = cv2.findNonZero(inner)  # 返回 Nx1x2，或 None
-        if coords is None:
-            return 0, 0  # 没内容
+        # ② 连通域分析
+        conn = 4 if connectivity == 4 else 8
+        num, labels, stats, _ = cv2.connectedComponentsWithStats(inv, conn)
+        # stats[i] = [x, y, w, h, area]
 
-        x, y, w, h = cv2.boundingRect(coords)
-        return int(w), int(h)
+        if num <= 1:
+            return 0, 0  # 只有背景
+
+        # ③ 去掉 label=0（与外边框连通的背景）
+        inner_stats = stats[1:]  # (num-1, 5)
+        # ④ 取面积最大的那块
+        idx = np.argmax(inner_stats[:, 4])
+        w, h = int(inner_stats[idx, 2]), int(inner_stats[idx, 3])
+        return w, h
