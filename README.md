@@ -1,47 +1,54 @@
-# YGO Tools for ComfyUI
+# Draw Tools for ComfyUI
 
-一组针对游戏王卡图制作的ComfyUI自定义节点集合。
+一组针对图像处理的ComfyUI自定义节点集合。
 
 ## 功能节点
 
-### Tile Image
+### Detect Inner Box
 
-- 将输入图像水平平铺指定次数（最多12个）
-- 可控制图像之间的间距（基于图像宽度的比例）
-- 支持左对齐或右对齐排列
-- 输出带有完整mask的图像
+- 检测掩码中不与边缘相连的白色区域
+- 返回区域最小外接矩形的宽度和高度
+- 支持设置阈值和连通性参数
+- 适用于检测图像中孤立区域的尺寸
 
-### Draw Line
+### Paste Into Frame
 
-- 绘制自定义线条
-- 支持设置线条长度和宽度
-- 使用HEX格式设置颜色（如#FFFFFF）
-- 支持设置透明度（如#FFFFFFFF）
-- 支持任意角度（0-360度）的线条绘制
+- 根据掩码中央矩形尺寸缩放内容图像
+- 使用原始掩码将内容贴进框架图像
+- 支持保持内容图像的原始宽高比
+- 自动处理透明度（如果框架图像有alpha通道）
 
 ## 安装
 
 ```bash
 cd custom_nodes
-git clone https://github.com/Ky11le/ygo_tools
+git clone https://github.com/Ky11le/draw_tools
+cd draw_tools
+pip install -r requirements.txt
 ```
+
+## 依赖要求
+
+本插件需要以下依赖项：
+- opencv-python >= 4.5.0
+- torch >= 1.7.0
+- numpy >= 1.19.0
 
 ## 使用方法
 
-节点会在ComfyUI的"ygo_tools"类别下出现。
+节点会在ComfyUI的"DrawTools"类别下出现。
 
-### Tile Image 参数
+### Detect Inner Box 参数
 
-- `image`: 输入图像
-- `mask`: 输入mask
-- `num_tiles`: 要平铺的图像数量（1-12）
-- `spacing_factor`: 图像间距系数（相对于图像宽度）
-- `align`: 对齐方式（left/right）
+- `mask_image`: 输入掩码图像
+- `threshold`: 二值化阈值（0.0-1.0）
+- `connectivity`: 连通性（4或8）
 
-### Draw Line 参数
+### Paste Into Frame 参数
 
-- `length`: 线条长度
-- `width`: 线条宽度
-- `color`: HEX颜色值（如#FFFFFF）
-- `angle`: 线条角度（0-360度）
-- `padding`: 边距大小 
+- `frame_image`: 框架图像（将作为背景）
+- `content_image`: 内容图像（将被贴入框架）
+- `mask_image`: 掩码图像（决定贴图区域）
+- `threshold`: 二值化阈值（0.0-1.0）
+- `connectivity`: 连通性（4或8）
+- `keep_aspect`: 是否保持内容图像的原始宽高比 

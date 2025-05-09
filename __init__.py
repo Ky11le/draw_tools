@@ -1,12 +1,12 @@
-from .tile_image import TileImage
-from .draw_line import DrawLine
+from .DetectInnerBox import DetectInnerBox
+from .PasteIntoFrame import PasteIntoFrame
 
 NODE_CLASS_MAPPINGS = {
-    "TileImage": TileImage,
-    "DrawLine": DrawLine
+    "DetectInnerBox": DetectInnerBox,
+    "PasteIntoFrame": PasteIntoFrame,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "TileImage": "Tile Image",
-    "DrawLine": "Draw Line"
-} 
+    "DetectInnerBox": "Detect Inner Box",
+    "PasteIntoFrame": "Paste Into Frame",
+}
