@@ -20,29 +20,23 @@ class DetectInnerBox:
 
     # ---------------- 主逻辑 ---------------- #
     def run(self, mask, connectivity=4):
-        # ① tensor → numpy 单通道 0/255
-        if isinstance(mask, list):  # ComfyUI 有时包在 list 里
+        # ① tensor → numpy uint8 0/255
+        if isinstance(mask, list):  # ComfyUI 有时包装成 list
             mask = mask[0]
         if mask.ndim == 3:  # [1,H,W] → [H,W]
             mask = mask[0]
-        np_mask = mask.cpu().numpy().astype("uint8") * 255  # 0/255
+        m = (mask.cpu().numpy() > 0).astype("uint8") * 255  # bool → 0/255
 
-        H, W = np_mask.shape[:2]
-
-        # ② flood-fill 把连边的白色清零
-        pad = cv2.copyMakeBorder(np_mask, 1, 1, 1, 1, cv2.BORDER_CONSTANT, value=0)
+        # ② flood-fill 把边缘连通白色涂成黑
+        pad = cv2.copyMakeBorder(m, 1, 1, 1, 1, cv2.BORDER_CONSTANT, value=0)
         flags = 4 if connectivity == 4 else 8
-        cv2.floodFill(
-            pad, None, (0, 0), 0, loDiff=0, upDiff=0, flags=flags | (255 << 8)
-        )
-        inner = pad[1:-1, 1:-1]
+        cv2.floodFill(pad, None, (0, 0), 0, flags=flags | (255 << 8))
+        inner = pad[1:-1, 1:-1]  # 去掉填充，得到中央白块
 
-        # ③ 取剩余像素的 bbox
-        ys, xs = np.where(inner == 255)
-        if ys.size == 0:
-            return 0, 0
+        # ③ 找中央白色像素坐标
+        coords = cv2.findNonZero(inner)  # 返回 Nx1x2，或 None
+        if coords is None:
+            return 0, 0  # 没内容
 
-        y0, y1 = ys.min(), ys.max()
-        x0, x1 = xs.min(), xs.max()
-
-        return int(x1 - x0 + 1), int(y1 - y0 + 1)
+        x, y, w, h = cv2.boundingRect(coords)
+        return int(w), int(h)
