@@ -1,0 +1,14 @@
+[project]
+name = "ygo_tools"
+description = "A set of custom ComfyUI nodes designed for creating Yu-Gi-Oh! card illustrations."
+version = "1.0.0"
+license = {file = "LICENSE"}
+
+[project.urls]
+Repository = "https://github.com/Ky11le/ygo_tools"
+#  Used by Comfy Registry https://comfyregistry.org
+
+[tool.comfy]
+PublisherId = ""
+DisplayName = "ygo_tools"
+Icon = ""
