@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import torch
 from PIL import Image
-from .converters import novel_tensor2pil, novel_pil2tensor
+from ..utils.converters import novel_tensor2pil, novel_pil2tensor
 
 
 class PasteIntoFrame:
