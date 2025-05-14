@@ -17,15 +17,11 @@ class TextBoxAutoWrap:
                 "base_chars_per_line": ("INT", {"default": 10, "min": 1, "max": 100}),
                 "max_lines": ("INT", {"default": 3, "min": 1, "max": 10}),
                 "min_hscale": ("FLOAT", {"default": 0.6, "min": 0.3, "max": 1.0}),
-                "font_hex": (
-                    "STRING",
-                    {"default": "#FFFFFFFF"},  # RRGGBBAA
-                ),
+                "font_hex": ("STRING", {"default": "#FFFFFFFF"}),  # RRGGBBAA
                 "stroke_width": ("INT", {"default": 0, "min": 0, "max": 20}),
-                "stroke_hex": (
-                    "STRING",
-                    {"default": "#000000FF"},  # 描边颜色
-                ),
+                "stroke_hex": ("STRING", {"default": "#000000FF"}),  # 描边颜色
+                "enable_small_caps": ("BOOLEAN", {"default": False}),
+                "small_caps_scale": ("FLOAT", {"default": 0.8, "min": 0.5, "max": 1.0}),
             }
         }
 
@@ -40,88 +36,94 @@ class TextBoxAutoWrap:
         return a + d
 
     @staticmethod
-    def wrap_by_pixel(text, font, max_w, max_lines):
+    def wrap_by_pixel_with_spacing(
+        text,
+        font,
+        max_w,
+        max_lines,
+        letter_spacing,
+        enable_small_caps=False,
+        small_font=None,
+    ):
+        """逐像素宽度换行：数字→小字号，其余→大字号"""
         lines, buf = [], ""
         for ch in text.replace("\n", ""):
             test = buf + ch
-            if font.getlength(test) <= max_w:
-                buf = test
-            else:
-                lines.append(buf)
-                buf = ch
-                if len(lines) == max_lines:
-                    return lines  # 超出行数上限，截掉
-        if buf and len(lines) < max_lines:
-            lines.append(buf)
-        return lines
 
-    @staticmethod
-    def wrap_by_pixel_with_spacing(text, font, max_w, max_lines, letter_spacing):
-        """包含字间距的换行函数"""
-        lines, buf = [], ""
-        for ch in text.replace("\n", ""):
-            test = buf + ch
-            # 计算包含字间距的文本宽度
-            width = (
-                sum(font.getlength(c) for c in test) + (len(test) - 1) * letter_spacing
-            )
+            width = 0
+            for c in test:
+                is_digit = c.isdigit()
+                use_font = (
+                    small_font
+                    if (enable_small_caps and is_digit and small_font)
+                    else font
+                )
+                width += use_font.getlength(c)
+            width += max(0, len(test) - 1) * letter_spacing
+
             if width <= max_w:
                 buf = test
             else:
                 lines.append(buf)
                 buf = ch
                 if len(lines) == max_lines:
-                    return lines  # 超出行数上限，截掉
+                    return lines
         if buf and len(lines) < max_lines:
             lines.append(buf)
         return lines
 
+    # ---------- 绘制 ----------
     @staticmethod
     def draw_text_with_spacing_and_stroke(
-        draw, pos, text, font, fill, letter_spacing, stroke_width, stroke_fill
+        draw,
+        pos,
+        text,
+        font,
+        fill,
+        letter_spacing,
+        stroke_width,
+        stroke_fill,
+        enable_small_caps=False,
+        small_font=None,
     ):
-        """带字间距和描边的文本绘制"""
-        x, y = pos
+        """按字符绘制：数字小字号，其余大字号；保持 baseline 对齐"""
+        x, y0 = pos
+        big_a, _ = font.getmetrics()
+        sml_a, _ = small_font.getmetrics() if small_font else font.getmetrics()
+        y_offset = max(0, big_a - sml_a)
 
-        # 没有描边时，直接绘制
-        if stroke_width <= 0:
-            for char in text:
-                draw.text((x, y), char, fill=fill, font=font)
-                x += font.getlength(char) + letter_spacing
-            return
-
-        # 有描边时，先绘制描边
         for char in text:
-            # 绘制描边（通过在多个位置绘制字符实现）
-            for dx in range(-stroke_width, stroke_width + 1):
-                for dy in range(-stroke_width, stroke_width + 1):
-                    if dx != 0 or dy != 0:  # 跳过中心点，中心点稍后用实际颜色绘制
-                        draw.text((x + dx, y + dy), char, fill=stroke_fill, font=font)
+            is_digit = char.isdigit()
+            use_small = enable_small_caps and is_digit and small_font is not None
+            cur_font = small_font if use_small else font
+            y = y0 + (y_offset if use_small else 0)
 
-            # 绘制中心文字
-            draw.text((x, y), char, fill=fill, font=font)
-            x += font.getlength(char) + letter_spacing
+            # ---- 描边 ----
+            if stroke_width > 0:
+                for dx in range(-stroke_width, stroke_width + 1):
+                    for dy in range(-stroke_width, stroke_width + 1):
+                        if dx or dy:
+                            draw.text(
+                                (x + dx, y + dy), char, fill=stroke_fill, font=cur_font
+                            )
+            # ---- 主文字 ----
+            draw.text((x, y), char, fill=fill, font=cur_font)
+            x += cur_font.getlength(char) + letter_spacing
 
     # ---------- 颜色解析 ----------
     @staticmethod
     def hex_to_rgba(hex_str: str):
-        """#RRGGBB or #RRGGBBAA → (R,G,B,A) 0‑255"""
         hs = hex_str.strip().lstrip("#")
         if len(hs) == 6:
             hs += "FF"
         if len(hs) != 8:
             return (255, 255, 255, 255)
         try:
-            r, g, b, a = (
-                int(hs[0:2], 16),
-                int(hs[2:4], 16),
-                int(hs[4:6], 16),
-                int(hs[6:8], 16),
-            )
-            return (r, g, b, a)
+            return tuple(int(hs[i : i + 2], 16) for i in (0, 2, 4, 6))
         except ValueError:
             return (255, 255, 255, 255)
 
+    # ---------- 运行 ----------
     def run(
         self,
         text,
@@ -136,25 +138,39 @@ class TextBoxAutoWrap:
         font_hex,
         stroke_width,
         stroke_hex,
+        enable_small_caps,
+        small_caps_scale,
     ):
         font_rgba = self.hex_to_rgba(font_hex)
         stroke_rgba = self.hex_to_rgba(stroke_hex)
-        # 1) 计算行字符数、缩放比
+
+        font = ImageFont.truetype(font_path, font_size)
+        small_font = (
+            ImageFont.truetype(font_path, max(1, int(font_size * small_caps_scale)))
+            if enable_small_caps
+            else None
+        )
+
+        # 缩放比
         char_cnt = len(re.sub(r"\s+", "", text))
         chars_per = max(base_chars_per_line, math.ceil(char_cnt / max_lines))
         hscale = max(base_chars_per_line / chars_per, min_hscale)
-        virt_w = int(round(box_width / hscale))  # 扩大的虚拟宽度
+        virt_w = int(round(box_width / hscale))
 
-        # 2) 准备字体
-        font = ImageFont.truetype(font_path, font_size)
-        lh = self.line_height(font)
-
-        # 3) 像素级换行 (在虚拟宽度内)
+        # 换行
         lines = self.wrap_by_pixel_with_spacing(
-            text, font, virt_w, max_lines, letter_spacing
+            text,
+            font,
+            virt_w,
+            max_lines,
+            letter_spacing,
+            enable_small_caps,
+            small_font,
         )
 
-        # 4) 先画到虚拟画布
+        lh = max(self.line_height(font), self.line_height(small_font or font))
+
+        # 虚拟画布
         img_v = Image.new("RGBA", (virt_w, box_height), (0, 0, 0, 0))
         msk_v = Image.new("L", (virt_w, box_height), 0)
         d_v = ImageDraw.Draw(img_v)
@@ -162,7 +178,7 @@ class TextBoxAutoWrap:
 
         y = 0
         for ln in lines:
-            # 使用带描边的绘制方法
+            # 正片
             self.draw_text_with_spacing_and_stroke(
                 d_v,
                 (0, y),
@@ -172,23 +188,30 @@ class TextBoxAutoWrap:
                 letter_spacing,
                 stroke_width,
                 stroke_rgba,
+                enable_small_caps,
+                small_font,
             )
-            # 对于蒙版，我们可能不需要描边，但为了保持一致的外观，也应用描边
+            # 蒙版
             self.draw_text_with_spacing_and_stroke(
-                m_v, (0, y), ln, font, 255, letter_spacing, stroke_width, 255
+                m_v,
+                (0, y),
+                ln,
+                font,
+                255,
+                letter_spacing,
+                stroke_width,
+                255,
+                enable_small_caps,
+                small_font,
             )
             y += lh
 
-        # 5) 整幅图缩回目标宽度
+        # 缩放 & 锐化
         img = img_v.resize((box_width, box_height), resample=Image.LANCZOS)
-        # 应用锐化滤镜提高清晰度
         img = img.filter(ImageFilter.SHARPEN)
-
         mask = msk_v.resize((box_width, box_height), resample=Image.NEAREST)
-        # 蒙版也可以考虑锐化以保持边缘清晰
         mask = mask.filter(ImageFilter.SHARPEN)
 
-        # 6) 转 tensor
         img_tensor = novel_pil2tensor(img)
         mask_rgb = torch.stack(
             [torch.from_numpy(np.array(mask, dtype=np.float32) / 255.0)], dim=0
