@@ -22,6 +22,8 @@ class TextBoxAutoWrap:
                 "stroke_hex": ("STRING", {"default": "#000000FF"}),  # 描边颜色
                 "enable_small_caps": ("BOOLEAN", {"default": False}),
                 "small_caps_scale": ("FLOAT", {"default": 0.8, "min": 0.5, "max": 1.0}),
+                # — 新增 ——
+                "align_right": ("BOOLEAN", {"default": False}),
             }
         }
 
@@ -36,7 +38,30 @@ class TextBoxAutoWrap:
         return a + d
 
     @staticmethod
+    def char_font(c, font, small_font, enable_small_caps):
+        """返回绘制字符 c 时应使用的 ImageFont 对象"""
+        return (
+            small_font if (enable_small_caps and c.isdigit() and small_font) else font
+        )
+
+    @classmethod
+    def line_pixel_width(
+        cls, text_line, font, small_font, letter_spacing, enable_small_caps
+    ):
+        """计算单行像素宽度（含字间距，末尾不加）"""
+        if not text_line:
+            return 0
+        width = 0
+        for idx, ch in enumerate(text_line):
+            fnt = cls.char_font(ch, font, small_font, enable_small_caps)
+            width += fnt.getlength(ch)
+            if idx < len(text_line) - 1:
+                width += letter_spacing
+        return width
+
+    @classmethod
     def wrap_by_pixel_with_spacing(
+        cls,
         text,
         font,
         max_w,
@@ -50,16 +75,10 @@ class TextBoxAutoWrap:
         for ch in text.replace("\n", ""):
             test = buf + ch
 
-            width = 0
-            for c in test:
-                is_digit = c.isdigit()
-                use_font = (
-                    small_font
-                    if (enable_small_caps and is_digit and small_font)
-                    else font
-                )
-                width += use_font.getlength(c)
-            width += max(0, len(test) - 1) * letter_spacing
+            # 计算 test 的宽度
+            width = cls.line_pixel_width(
+                test, font, small_font, letter_spacing, enable_small_caps
+            )
 
             if width <= max_w:
                 buf = test
@@ -86,29 +105,30 @@ class TextBoxAutoWrap:
         enable_small_caps=False,
         small_font=None,
     ):
-        """按字符绘制：数字小字号，其余大字号；保持 baseline 对齐"""
+        """数字小字号，其余大字号；baseline 对齐"""
         x, y0 = pos
         big_a, _ = font.getmetrics()
         sml_a, _ = small_font.getmetrics() if small_font else font.getmetrics()
         y_offset = max(0, big_a - sml_a)
 
-        for char in text:
-            is_digit = char.isdigit()
-            use_small = enable_small_caps and is_digit and small_font is not None
+        for ch in text:
+            use_small = enable_small_caps and ch.isdigit() and small_font is not None
             cur_font = small_font if use_small else font
             y = y0 + (y_offset if use_small else 0)
 
-            # ---- 描边 ----
+            # 描边
             if stroke_width > 0:
                 for dx in range(-stroke_width, stroke_width + 1):
                     for dy in range(-stroke_width, stroke_width + 1):
                         if dx or dy:
                             draw.text(
-                                (x + dx, y + dy), char, fill=stroke_fill, font=cur_font
+                                (x + dx, y + dy), ch, fill=stroke_fill, font=cur_font
                             )
-            # ---- 主文字 ----
-            draw.text((x, y), char, fill=fill, font=cur_font)
-            x += cur_font.getlength(char) + letter_spacing
+
+            # 主文字
+            draw.text((x, y), ch, fill=fill, font=cur_font)
+
+            x += cur_font.getlength(ch) + letter_spacing
 
     # ---------- 颜色解析 ----------
     @staticmethod
@@ -140,6 +160,7 @@ class TextBoxAutoWrap:
         stroke_hex,
         enable_small_caps,
         small_caps_scale,
+        align_right,
     ):
         font_rgba = self.hex_to_rgba(font_hex)
         stroke_rgba = self.hex_to_rgba(stroke_hex)
@@ -151,7 +172,7 @@ class TextBoxAutoWrap:
             else None
         )
 
-        # 缩放比
+        # 估算缩放比
         char_cnt = len(re.sub(r"\s+", "", text))
         chars_per = max(base_chars_per_line, math.ceil(char_cnt / max_lines))
         hscale = max(base_chars_per_line / chars_per, min_hscale)
@@ -159,13 +180,7 @@ class TextBoxAutoWrap:
 
         # 换行
         lines = self.wrap_by_pixel_with_spacing(
-            text,
-            font,
-            virt_w,
-            max_lines,
-            letter_spacing,
-            enable_small_caps,
-            small_font,
+            text, font, virt_w, max_lines, letter_spacing, enable_small_caps, small_font
         )
 
         lh = max(self.line_height(font), self.line_height(small_font or font))
@@ -176,12 +191,19 @@ class TextBoxAutoWrap:
         d_v = ImageDraw.Draw(img_v)
         m_v = ImageDraw.Draw(msk_v)
 
+        # 逐行绘制
         y = 0
         for ln in lines:
+            # 根据对齐方式确定起始 x
+            line_width = self.line_pixel_width(
+                ln, font, small_font, letter_spacing, enable_small_caps
+            )
+            x_start = virt_w - line_width if align_right else 0
+
             # 正片
             self.draw_text_with_spacing_and_stroke(
                 d_v,
-                (0, y),
+                (x_start, y),
                 ln,
                 font,
                 font_rgba,
@@ -194,7 +216,7 @@ class TextBoxAutoWrap:
             # 蒙版
             self.draw_text_with_spacing_and_stroke(
                 m_v,
-                (0, y),
+                (x_start, y),
                 ln,
                 font,
                 255,
@@ -206,11 +228,13 @@ class TextBoxAutoWrap:
             )
             y += lh
 
-        # 缩放 & 锐化
-        img = img_v.resize((box_width, box_height), resample=Image.LANCZOS)
-        img = img.filter(ImageFilter.SHARPEN)
-        mask = msk_v.resize((box_width, box_height), resample=Image.NEAREST)
-        mask = mask.filter(ImageFilter.SHARPEN)
+        # 缩回目标尺寸 & 锐化
+        img = img_v.resize((box_width, box_height), resample=Image.LANCZOS).filter(
+            ImageFilter.SHARPEN
+        )
+        mask = msk_v.resize((box_width, box_height), resample=Image.NEAREST).filter(
+            ImageFilter.SHARPEN
+        )
 
         img_tensor = novel_pil2tensor(img)
         mask_rgb = torch.stack(
